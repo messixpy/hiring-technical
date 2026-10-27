@@ -19,16 +19,22 @@ export const useKtv2Jackpot = ({ contractAddress, targetChainId, isChainSupporte
   } = useBalance({
     address: contractAddress ?? undefined,
     chainId: targetChainId,
-    query: {
-      enabled: !!contractAddress && isChainSupported && !!targetChainId,
-    },
+    query: { enabled: !!contractAddress && isChainSupported && !!targetChainId },
   });
 
   const { ethPriceData, ethPriceDecimals, isLoadingEthPrice, isLoadingEthPriceDecimals } = useNativeUsdPrice(targetChainId);
-  
-  const contractBalanceUsd = useMemo(() =>
-    calculateUsdValue(childContractBalance?.value, ethPriceData, ethPriceDecimals, childContractBalance?.decimals)
-  , [childContractBalance, ethPriceData, ethPriceDecimals]);
+
+  const balanceValue = childContractBalance?.value;
+  const balanceDecimals = childContractBalance?.decimals;
+
+  // FIX: depend on the primitive fields actually read, so the memo is not recomputed when only the object identity changes
+  const contractBalanceUsd = useMemo(
+    () => calculateUsdValue(balanceValue, ethPriceData, ethPriceDecimals, balanceDecimals),
+    [balanceValue, balanceDecimals, ethPriceData, ethPriceDecimals],
+  );
+
+  // FIX: price-loading flag computed once and reused, instead of repeating the same two terms in two places
+  const isLoadingUsdValue = isLoadingEthPrice || isLoadingEthPriceDecimals;
 
   return {
     childContractBalance,
@@ -36,7 +42,7 @@ export const useKtv2Jackpot = ({ contractAddress, targetChainId, isChainSupporte
     isLoadingChildContractBalance,
     childContractBalanceSuccess,
     contractBalanceUsd,
-    isLoadingUsdValue: isLoadingEthPrice || isLoadingEthPriceDecimals,
-    isLoading: isLoadingChildContractBalance || isLoadingEthPrice || isLoadingEthPriceDecimals,
+    isLoadingUsdValue,
+    isLoading: isLoadingChildContractBalance || isLoadingUsdValue,
   };
-}; 
+};

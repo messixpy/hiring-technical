@@ -9,110 +9,84 @@ interface UseKtv2TokenDataProps {
 }
 
 export const useKtv2TokenData = ({ contractAddress, targetChainId, isChainSupported }: UseKtv2TokenDataProps) => {
-  const baseQueryOptions = {
-    enabled: !!contractAddress && isChainSupported && !!targetChainId,
-  };
+  const isChainReady = isChainSupported && !!targetChainId;
+
+  // FIX: one shared config for all child-contract reads, so none can lose chainId or enabled again (the merge conflict cause)
+  const childConfig = {
+    address: contractAddress ?? undefined,
+    abi: childContractABI,
+    chainId: targetChainId,
+    query: { enabled: !!contractAddress && isChainReady },
+  } as const;
 
   const {
-    data: childTokenAddressData,
+    data: childTokenAddress,
     error: childContractReadError,
     isLoading: isLoadingChildContractData,
     isSuccess: childContractReadSuccess,
-  } = useReadContract({
-    address: contractAddress ?? undefined,
-    abi: childContractABI,
-    functionName: 'tokenAddr',
-    chainId: targetChainId,
-    query: baseQueryOptions,
-  });
-  const childTokenAddress = childTokenAddressData as Address | undefined;
+  } = useReadContract({ ...childConfig, functionName: 'tokenAddr' });
 
-  const tokenQueryOptions = {
-    enabled: !!childTokenAddress && isChainSupported && !!targetChainId,
-  };
+  // FIX: shared ERC-20 config, enabled only once the token address is known
+  const tokenConfig = {
+    address: childTokenAddress,
+    abi: erc20ABI,
+    chainId: targetChainId,
+    query: { enabled: !!childTokenAddress && isChainReady },
+  } as const;
 
   const {
-    data: ktv2TokenDecimalsData,
+    data: ktv2TokenDecimals,
     error: ktv2TokenDecimalsError,
     isLoading: isLoadingKtv2TokenDecimals,
-  } = useReadContract({
-    address: childTokenAddress,
-    abi: erc20ABI,
-    functionName: 'decimals',
-    chainId: targetChainId,
-    query: tokenQueryOptions,
-  });
-  const ktv2TokenDecimals = ktv2TokenDecimalsData as number | undefined;
+  } = useReadContract({ ...tokenConfig, functionName: 'decimals' });
 
   const {
-    data: ktv2TokenSymbolData,
+    data: ktv2TokenSymbol,
     error: ktv2TokenSymbolError,
     isLoading: isLoadingKtv2TokenSymbol,
-  } = useReadContract({
-    address: childTokenAddress,
-    abi: erc20ABI,
-    functionName: 'symbol',
-    chainId: targetChainId,
-    query: tokenQueryOptions,
-  });
-  const ktv2TokenSymbol = ktv2TokenSymbolData as string | undefined;
+  } = useReadContract({ ...tokenConfig, functionName: 'symbol' });
 
   const {
-    data: ktv2TokenNameData,
+    data: ktv2TokenName,
     error: ktv2TokenNameError,
     isLoading: isLoadingKtv2TokenName,
-  } = useReadContract({
-    address: childTokenAddress,
-    abi: erc20ABI,
-    functionName: 'name',
-    chainId: targetChainId,
-    query: tokenQueryOptions,
-  });
-  const ktv2TokenName = ktv2TokenNameData as string | undefined;
+  } = useReadContract({ ...tokenConfig, functionName: 'name' });
 
   // --- Price in native (Uniswap v2/v3) ---
-  const { data: poolAddressData, isLoading: isLoadingPoolAddress } = useReadContract({
-    address: contractAddress ?? undefined,
-    abi: childContractABI,
+  // CONFLICT 1 FIX: main had deleted chainId/query from this read; dev's version restored (via childConfig)
+  const { data: poolAddress, isLoading: isLoadingPoolAddress } = useReadContract({
+    ...childConfig,
     functionName: 'pool', // Address used as pair (Uni v2) or pool (Uni v3)
-
   });
-  const poolAddress = poolAddressData as Address | undefined;
 
-  const { data: tpContractAddressData, isLoading: isLoadingTpContractAddress } = useReadContract({
-    address: contractAddress ?? undefined,
-    abi: childContractABI,
+  // FIX: tp read had the same missing chainId/query as pool but was not flagged as a conflict
+  const { data: tpContractAddress, isLoading: isLoadingTpContractAddress } = useReadContract({
+    ...childConfig,
     functionName: 'tp',
-
   });
-  const tpContractAddress = tpContractAddressData as Address | undefined;
 
   // KTV2 version flag (true => Uniswap v2, false => Uniswap v3)
-  const { data: isV2Data } = useReadContract({
-    address: contractAddress ?? undefined,
-    abi: childContractABI,
-    functionName: 'v2',
-    chainId: targetChainId,
-    query: baseQueryOptions,
-  });
-  const isV2 = isV2Data as boolean;
+  // CONFLICT 2 FIX: dev's undefined-aware typing kept; the false "as boolean" cast is gone, so the type is boolean | undefined
+  const { data: isV2, isLoading: isLoadingIsV2 } = useReadContract({ ...childConfig, functionName: 'v2' });
 
   // Read token price: v2 -> priceV2 (Uniswap v2), otherwise -> price (Uniswap v3)
   const {
-    data: ktv2TokenPriceInNativeData,
+    data: ktv2TokenPriceInNative,
     error: ktv2TokenPriceInNativeError,
-    isLoading: isLoadingKtv2TokenPriceInNative,
+    isLoading: isLoadingPriceRead,
   } = useReadContract({
     address: tpContractAddress,
     abi: tpABI,
     functionName: isV2 ? 'priceV2' : 'price',
     args: poolAddress ? [poolAddress] : undefined,
     chainId: targetChainId,
-    query: {
-      enabled: isV2 !== undefined && !!tpContractAddress && !!poolAddress && isChainSupported && !!targetChainId,
-    },
+    // CONFLICT 3 FIX: main's chain-support guard kept; dev's version dropped it and would read on unsupported chains
+    query: { enabled: isV2 !== undefined && !!tpContractAddress && !!poolAddress && isChainReady },
   });
-  const ktv2TokenPriceInNative = ktv2TokenPriceInNativeData as bigint | undefined;
+
+  // FIX: price loading now covers pool, tp and v2 reads, and isLoading reuses it (it used the raw flag before)
+  const isLoadingKtv2TokenPriceInNative =
+    isLoadingPriceRead || isLoadingPoolAddress || isLoadingTpContractAddress || isLoadingIsV2;
 
   return {
     childTokenAddress,
@@ -130,7 +104,12 @@ export const useKtv2TokenData = ({ contractAddress, targetChainId, isChainSuppor
     isLoadingKtv2TokenName,
     ktv2TokenPriceInNative,
     ktv2TokenPriceInNativeError,
-    isLoadingKtv2TokenPriceInNative: isLoadingKtv2TokenPriceInNative || isLoadingPoolAddress || isLoadingTpContractAddress,
-    isLoading: isLoadingChildContractData || isLoadingKtv2TokenDecimals || isLoadingKtv2TokenSymbol || isLoadingKtv2TokenName || isLoadingKtv2TokenPriceInNative,
+    isLoadingKtv2TokenPriceInNative,
+    isLoading:
+      isLoadingChildContractData ||
+      isLoadingKtv2TokenDecimals ||
+      isLoadingKtv2TokenSymbol ||
+      isLoadingKtv2TokenName ||
+      isLoadingKtv2TokenPriceInNative,
   };
-}; 
+};

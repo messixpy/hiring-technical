@@ -1,17 +1,24 @@
 import { useState, useEffect } from 'react';
 
+// FIX: breakpoint extracted into a named constant instead of an inline magic string
+const SMALL_SCREEN_QUERY = '(max-width: 767px)';
+
 export function useResponsive() {
-  const [isSmallScreen, setIsSmallScreen] = useState(false);
+  // FIX: lazy initializer reads the real value on first render, removing the desktop-layout flash on mobile (SSR-safe)
+  const [isSmallScreen, setIsSmallScreen] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(SMALL_SCREEN_QUERY).matches,
+  );
 
   useEffect(() => {
-    const mediaQuery = window.matchMedia('(max-width: 767px)');
-    const handleResize = () => setIsSmallScreen(mediaQuery.matches);
+    const mediaQuery = window.matchMedia(SMALL_SCREEN_QUERY);
+    // FIX: handler renamed and reads event.matches, since this is a media query change and not a resize event
+    const handleChange = (event: MediaQueryListEvent) => setIsSmallScreen(event.matches);
 
-    mediaQuery.addEventListener('change', handleResize);
-    handleResize(); // Initial check
+    setIsSmallScreen(mediaQuery.matches); // Sync in case the value changed between render and effect
+    mediaQuery.addEventListener('change', handleChange);
 
-    return () => mediaQuery.removeEventListener('change', handleResize);
+    return () => mediaQuery.removeEventListener('change', handleChange);
   }, []);
 
   return { isSmallScreen };
-} 
+}

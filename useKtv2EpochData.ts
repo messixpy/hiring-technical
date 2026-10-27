@@ -9,35 +9,28 @@ interface UseKtv2EpochDataProps {
 }
 
 export const useKtv2EpochData = ({ contractAddress, targetChainId, isChainSupported }: UseKtv2EpochDataProps) => {
-  const queryOptions = {
-    enabled: !!contractAddress && isChainSupported && !!targetChainId,
-  };
+  // FIX: shared read config replaces the options duplicated across both contract calls
+  const baseConfig = {
+    address: contractAddress ?? undefined,
+    abi: childContractABI,
+    chainId: targetChainId,
+    query: { enabled: !!contractAddress && isChainSupported && !!targetChainId },
+  } as const;
 
   const {
-    data: epochIntervalData,
+    data: epochIntervalRaw,
     error: epochIntervalError,
     isLoading: isLoadingEpochInterval,
-  } = useReadContract({
-    address: contractAddress ?? undefined,
-    abi: childContractABI,
-    functionName: 'epochInterval',
-    chainId: targetChainId,
-    query: queryOptions,
-  });
-  const epochInterval = epochIntervalData as number | undefined;
+  } = useReadContract({ ...baseConfig, functionName: 'epochInterval' });
 
   const {
-    data: startBlockData,
+    data: startBlock,
     error: startBlockError,
     isLoading: isLoadingStartBlock,
-  } = useReadContract({
-    address: contractAddress ?? undefined,
-    abi: childContractABI,
-    functionName: 'startBlock',
-    chainId: targetChainId,
-    query: queryOptions,
-  });
-  const startBlock = startBlockData as bigint | undefined;
+  } = useReadContract({ ...baseConfig, functionName: 'startBlock' });
+
+  // FIX: uint256 is returned as bigint, so the old "as number" cast was false and crashed BigInt * number math downstream
+  const epochInterval = epochIntervalRaw === undefined ? undefined : Number(epochIntervalRaw);
 
   return {
     epochInterval,
@@ -48,4 +41,4 @@ export const useKtv2EpochData = ({ contractAddress, targetChainId, isChainSuppor
     isLoadingStartBlock,
     isLoading: isLoadingEpochInterval || isLoadingStartBlock,
   };
-}; 
+};

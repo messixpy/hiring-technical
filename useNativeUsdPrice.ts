@@ -1,43 +1,30 @@
-import { useMemo } from 'react';
 import { useReadContract } from 'wagmi';
 import { CHAINLINK_NATIVE_TOKEN_PRICE_FEEDS } from '../config/contracts';
 import { chainlinkPriceFeedAbi } from '../abis/chainlinkPriceFeedAbi';
 
 export const useNativeUsdPrice = (targetChainId: number | undefined) => {
-  const ethUsdPriceFeedAddress = useMemo(() => {
-    if (targetChainId) {
-      return CHAINLINK_NATIVE_TOKEN_PRICE_FEEDS[targetChainId];
-    }
-    return undefined;
-  }, [targetChainId]);
+  // FIX: useMemo removed since a plain object lookup is cheaper than memoizing it
+  const ethUsdPriceFeedAddress = targetChainId ? CHAINLINK_NATIVE_TOKEN_PRICE_FEEDS[targetChainId] : undefined;
+
+  // FIX: shared config replaces the options duplicated across both reads; the redundant "!!targetChainId" check is dropped
+  const baseConfig = {
+    address: ethUsdPriceFeedAddress,
+    abi: chainlinkPriceFeedAbi,
+    chainId: targetChainId,
+    query: { enabled: !!ethUsdPriceFeedAddress },
+  } as const;
 
   const {
     data: ethPriceData,
     error: ethPriceError,
     isLoading: isLoadingEthPrice,
-  } = useReadContract({
-    address: ethUsdPriceFeedAddress,
-    abi: chainlinkPriceFeedAbi,
-    functionName: 'latestRoundData',
-    chainId: targetChainId,
-    query: {
-      enabled: !!ethUsdPriceFeedAddress && !!targetChainId,
-    },
-  });
+  } = useReadContract({ ...baseConfig, functionName: 'latestRoundData' });
 
   const {
     data: ethPriceDecimals,
     error: ethPriceDecimalsError,
     isLoading: isLoadingEthPriceDecimals,
-  } = useReadContract({
-    address: ethUsdPriceFeedAddress,
-    abi: chainlinkPriceFeedAbi,
-    functionName: 'decimals',
-    chainId: targetChainId,
-    query: {
-      enabled: !!ethUsdPriceFeedAddress && !!targetChainId,
-    },
-  });
+  } = useReadContract({ ...baseConfig, functionName: 'decimals' });
 
   return {
     ethPriceData,
@@ -47,4 +34,4 @@ export const useNativeUsdPrice = (targetChainId: number | undefined) => {
     ethPriceDecimalsError,
     isLoadingEthPriceDecimals,
   };
-}; 
+};
